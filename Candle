@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Birthday Candle</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+
+        .container {
+            text-align: center;
+        }
+
+        h1 {
+            color: white;
+            font-size: 3em;
+            margin-bottom: 40px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .candle-container {
+            display: flex;
+            justify-content: center;
+            margin: 40px 0;
+        }
+
+        canvas {
+            max-width: 100%;
+            height: auto;
+        }
+
+        .button-group {
+            margin-top: 40px;
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 15px 40px;
+            font-size: 1.1em;
+            font-weight: bold;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .blow-btn {
+            background: white;
+            color: #667eea;
+        }
+
+        .reset-btn {
+            background: #ff6b6b;
+            color: white;
+        }
+
+        .reset-btn:hover {
+            background: #ee5a5a;
+        }
+
+        .listening {
+            background: #4CAF50;
+            color: white;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .message {
+            color: white;
+            font-size: 2em;
+            margin-top: 30px;
+            animation: bounce 0.6s ease;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+
+        .info {
+            color: rgba(255,255,255,0.8);
+            margin-top: 30px;
+            font-size: 1em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎂 Make a Wish! 🎂</h1>
+        
+        <div class="candle-container">
+            <canvas id="candleCanvas" width="400" height="600"></canvas>
+        </div>
+
+        <div class="button-group">
+            <button id="blowBtn" class="blow-btn">🎤 Blow the Candle</button>
+            <button id="resetBtn" class="reset-btn" style="display:none;">🔥 Light Again</button>
+        </div>
+
+        <div id="message"></div>
+        <div class="info">
+            <p id="infoText">Click the button and blow into your microphone! 🌬️</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('candleCanvas');
+        const ctx = canvas.getContext('2d');
+        const blowBtn = document.getElementById('blowBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const message = document.getElementById('message');
+        const infoText = document.getElementById('infoText');
+
+        let isLit = true;
+        let listening = false;
+        let audioContext = null;
+        let analyser = null;
+        let stream = null;
+        let animationId = null;
+
+        // Candle flame particles
+        let particles = [];
+
+        class Particle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = -Math.random() * 3 - 2;
+                this.life = 1;
+                this.size = Math.random() * 8 + 4;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= 0.02;
+                this.vy *= 0.98;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = `hsl(${40 + Math.random() * 20}, 100%, ${50 - this.life * 30}%)`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        function drawCandle() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Cake
+            const cakeX = canvas.width / 2 - 100;
+            const cakeY = 350;
+            ctx.fillStyle = '#D2691E';
+            ctx.fillRect(cakeX, cakeY, 200, 120);
+            ctx.strokeStyle = '#8B4513';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(cakeX, cakeY, 200, 120);
+
+            // Frosting pattern
+            ctx.fillStyle = 'rgba(255, 200, 100, 0.3)';
+            for (let i = 0; i < 200; i += 20) {
+                ctx.beginPath();
+                ctx.arc(cakeX + i + 10, cakeY + 60, 8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Candle (wax stick)
+            const candleX = canvas.width / 2;
+            const candleY = cakeY;
+            ctx.fillStyle = '#F5DEB3';
+            ctx.fillRect(candleX - 15, candleY - 150, 30, 150);
+            ctx.strokeStyle = '#DAA520';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(candleX - 15, candleY - 150, 30, 150);
+
+            // Draw flame only if lit
+            if (isLit) {
+                drawFlame(candleX, candleY - 150);
+                
+                // Add new particles
+                if (particles.length < 50) {
+                    particles.push(new Particle(candleX + (Math.random() - 0.5) * 20, candleY - 150));
+                }
+            }
+
+            // Update and draw particles
+            particles = particles.filter(p => p.life > 0);
+            particles.forEach(p => {
+                p.update();
+                p.draw(ctx);
+            });
+        }
+
+        function drawFlame(x, y) {
+            const time = Date.now() * 0.003;
+
+            // Outer flame (red/orange)
+            ctx.fillStyle = 'rgba(255, 100, 0, 0.6)';
+            ctx.beginPath();
+            ctx.bezierCurveTo(
+                x - 15, y + 80,
+                x - 20 + Math.sin(time) * 5, y - 20,
+                x, y - 60
+            );
+            ctx.bezierCurveTo(
+                x + 20 + Math.sin(time + 1) * 5, y - 20,
+                x + 15, y + 80,
+                x, y + 80
+            );
+            ctx.fill();
+
+            // Middle flame (orange/yellow)
+            ctx.fillStyle = 'rgba(255, 200, 0, 0.7)';
+            ctx.beginPath();
+            ctx.bezierCurveTo(
+                x - 10, y + 60,
+                x - 12 + Math.sin(time + 0.5) * 3, y - 10,
+                x, y - 50
+            );
+            ctx.bezierCurveTo(
+                x + 12 + Math.sin(time + 1.5) * 3, y - 10,
+                x + 10, y + 60,
+                x, y + 60
+            );
+            ctx.fill();
+
+            // Inner flame (bright yellow)
+            ctx.fillStyle = 'rgba(255, 255, 100, 0.8)';
+            ctx.beginPath();
+            ctx.bezierCurveTo(
+                x - 6, y + 40,
+                x - 7 + Math.sin(time + 1) * 2, y,
+                x, y - 40
+            );
+            ctx.bezierCurveTo(
+                x + 7 + Math.sin(time + 2) * 2, y,
+                x + 6, y + 40,
+                x, y + 40
+            );
+            ctx.fill();
+
+            // Bright core
+            ctx.fillStyle = 'rgba(255, 255, 200, 0.9)';
+            ctx.beginPath();
+            ctx.arc(x, y - 20, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function animate() {
+            drawCandle();
+            animationId = requestAnimationFrame(animate);
+        }
+
+        blowBtn.addEventListener('click', async () => {
+            if (listening) return;
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+
+                const source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+
+                listening = true;
+                blowBtn.textContent = '🎤 Listening... Blow now!';
+                blowBtn.classList.add('listening');
+                blowBtn.disabled = true;
+                infoText.textContent = '🌬️ Blow into your microphone!';
+
+                detectBlowing();
+            } catch (err) {
+                message.textContent = '❌ Microphone access denied';
+                message.className = 'message';
+            }
+        });
+
+        function detectBlowing() {
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+
+            if (average > 25 && isLit) {
+                isLit = false;
+                listening = false;
+                stopListening();
+                message.textContent = '🎉 Wish Granted! 🎉';
+                message.className = 'message';
+                blowBtn.style.display = 'none';
+                resetBtn.style.display = 'inline-block';
+                infoText.textContent = 'Your wish is on its way! ✨';
+                return;
+            }
+
+            if (listening) {
+                requestAnimationFrame(detectBlowing);
+            }
+        }
+
+        function stopListening() {
+            listening = false;
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            if (audioContext) {
+                audioContext.close();
+            }
+            blowBtn.classList.remove('listening');
+            blowBtn.disabled = false;
+            blowBtn.textContent = '🎤 Blow the Candle';
+        }
+
+        resetBtn.addEventListener('click', () => {
+            isLit = true;
+            particles = [];
+            message.textContent = '';
+            blowBtn.style.display = 'inline-block';
+            resetBtn.style.display = 'none';
+            infoText.textContent = 'Click the button and blow into your microphone! 🌬️';
+            stopListening();
+        });
+
+        // Start animation
+        animate();
+    </script>
+</body>
+</html>
